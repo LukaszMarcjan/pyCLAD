@@ -7,7 +7,7 @@ keep training/inference running yet quietly destroy detection quality.
 
 The run is slow and data-dependent, so it is opt-in: set ``PYCLAD_RUN_BENCHMARKS=1`` and have the
 BTech dataset present under ``examples/resources/vision/BTech_Dataset_transformed``. Otherwise it
-skips. A full multi-category sweep lives in ``examples/models/vision/rd4ad_benchmark.py``.
+skips.
 """
 
 import os

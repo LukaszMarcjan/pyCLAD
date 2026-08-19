@@ -53,6 +53,7 @@ if __name__ == "__main__":
         batch_size=16,
         epochs=2,
         learning_rate=5e-3,
+        score_smoothing_sigma=4.0,
         score_mode="max",
         threshold_quantile=0.99,
         show_training_progress=True,

@@ -109,7 +109,7 @@ def test_rd4ad_score_smoothing_changes_score_maps():
     # (same seed) a positive sigma must actually alter the fused anomaly map vs the unsmoothed
     # one, proving the gaussian_blur branch in _anomaly_map is reached.
     data = np.random.default_rng(5).random((1, 32, 32, 3), dtype=np.float32)
-    unsmoothed = RD4AD(_config(seed=11, threshold=0.0)).predict(data).score_maps
+    unsmoothed = RD4AD(_config(seed=11, threshold=0.0, score_smoothing_sigma=0.0)).predict(data).score_maps
     smoothed = RD4AD(_config(seed=11, threshold=0.0, score_smoothing_sigma=2.0)).predict(data).score_maps
 
     assert unsmoothed.shape == smoothed.shape == (1, 32, 32)
@@ -211,6 +211,21 @@ def test_rd4ad_unfrozen_encoder_is_optimized():
     optimizer = model.module.configure_optimizers()
     optimized = {id(p) for group in optimizer.param_groups for p in group["params"]}
     assert all(id(p) in optimized for p in model.module.network.encoder.parameters())
+
+
+def test_rd4ad_default_config_matches_reference_implementation():
+    # RD4ADConfig() alone must reproduce the paper's setup; the benchmark example and the
+    # guarded benchmark test both assume these values. Smoothing in particular is easy to
+    # regress to 0.0, which silently degrades image-level scores under score_mode="max".
+    config = RD4ADConfig()
+
+    assert config.input_size == (256, 256)
+    assert config.batch_size == 16
+    assert config.epochs == 200
+    assert config.learning_rate == pytest.approx(5e-3)
+    assert config.backbone_name == "wide_resnet50_2"
+    assert (config.adam_beta1, config.adam_beta2) == (0.5, 0.999)
+    assert config.score_smoothing_sigma == pytest.approx(4.0)
 
 
 def test_rd4ad_config_rejects_negative_smoothing_sigma():
