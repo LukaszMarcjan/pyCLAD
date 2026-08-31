@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 import numpy as np
 
 from pyclad.callbacks.callback import Callback
+from pyclad.callbacks.evaluation.concept_metric_evaluation import (
+    align_first_seen_steps,
+    build_dense_matrix,
+    validate_schedule_aware_configuration,
+)
 from pyclad.data.concept import Concept
 from pyclad.metrics.base.base_metric import BaseMetric
 from pyclad.metrics.continual.concepts_metric import (
-    ConceptLevelMatrix,
+    ScheduleAwareMetric,
     SummarizedMetric,
 )
 from pyclad.output.output_writer import InfoProvider
@@ -29,19 +34,31 @@ class VisionPixelConceptMetricCallback(Callback, InfoProvider):
     Skips silently when ``score_maps`` is absent (i.e. the strategy returned a
     plain :class:`pyclad.output.prediction_results.PredictionResults`), when the
     evaluated concept is not a :class:`VisionConcept`, or when the concept
-    carries no masks.
+    carries no masks. Note that skipping *some* pairs leaves the matrix incomplete,
+    which :meth:`info` reports as an error rather than papering over.
+
+    Like ``ConceptMetricCallback`` it supports step-scheduled training (see
+    :mod:`pyclad.data.grouping`): rows follow the grouped training steps, columns follow
+    the evaluated categories, and ``schedule_aware_metrics`` with ``first_seen_step``
+    compute metrics over the resulting ``T x N`` matrix.
     """
 
     def __init__(
         self,
         base_metric: BaseMetric,
         summarized_metrics: Iterable[SummarizedMetric] = (),
+        schedule_aware_metrics: Iterable[ScheduleAwareMetric] = (),
+        first_seen_step: Optional[Mapping[str, int]] = None,
     ):
         self._base_metric = base_metric
         self._summarized_metrics: List[SummarizedMetric] = list(summarized_metrics)
+        self._schedule_aware_metrics: List[ScheduleAwareMetric] = list(schedule_aware_metrics)
+        self._first_seen_step = dict(first_seen_step) if first_seen_step is not None else None
         self._metric_matrix: Dict[str, Dict[str, float]] = defaultdict(dict)
         self._learned_concepts: List[str] = []
         self._evaluated_concepts: List[str] = []
+
+        validate_schedule_aware_configuration(self._schedule_aware_metrics, self._first_seen_step)
 
     def after_training(self, learned_concept: Concept, *args, **kwargs) -> None:
         self._learned_concepts.append(learned_concept.name)
@@ -74,23 +91,21 @@ class VisionPixelConceptMetricCallback(Callback, InfoProvider):
         if not self._evaluated_concepts:
             return {}
 
-        ordered = list(self._evaluated_concepts)
-        dense = self._to_dense_matrix(self._metric_matrix, ordered)
-        return {
-            f"pixel_concept_metric_callback_{self._base_metric.name()}": {
-                "base_metric_name": self._base_metric.name(),
-                "metrics": {m.name(): m.compute(dense) for m in self._summarized_metrics},
-                "concepts_order": ordered,
-                "metric_matrix": self._metric_matrix,
-                "evaluation_level": "pixel",
-            }
+        dense = build_dense_matrix(self._metric_matrix, self._learned_concepts, self._evaluated_concepts)
+        payload = {
+            "base_metric_name": self._base_metric.name(),
+            "metrics": {m.name(): m.compute(dense) for m in self._summarized_metrics},
+            "concepts_order": self._learned_concepts,
+            "test_order": self._evaluated_concepts,
+            "metric_matrix": self._metric_matrix,
+            "evaluation_level": "pixel",
         }
 
-    @staticmethod
-    def _to_dense_matrix(
-        metric_matrix: Dict[str, Dict[str, float]],
-        concepts_order: List[str],
-    ) -> ConceptLevelMatrix:
-        if not concepts_order:
-            return [[]]
-        return [[metric_matrix[learned][evaluated] for evaluated in concepts_order] for learned in concepts_order]
+        if self._first_seen_step is not None:
+            first_seen_steps = align_first_seen_steps(self._first_seen_step, self._evaluated_concepts)
+            payload["first_seen_step"] = dict(zip(self._evaluated_concepts, first_seen_steps))
+            payload["schedule_aware_metrics"] = {
+                m.name(): m.compute(dense, first_seen_steps) for m in self._schedule_aware_metrics
+            }
+
+        return {f"pixel_concept_metric_callback_{self._base_metric.name()}": payload}
