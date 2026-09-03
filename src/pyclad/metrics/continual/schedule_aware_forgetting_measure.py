@@ -5,6 +5,7 @@ import numpy as np
 from pyclad.metrics.continual.concepts_metric import (
     ConceptLevelMatrix,
     ScheduleAwareMetric,
+    is_nan,
     validate_first_seen_steps,
 )
 
@@ -40,10 +41,10 @@ class ScheduleAwareForgettingMeasure(ScheduleAwareMetric):
             history = [
                 metric_matrix[row][column]
                 for row in range(int(first_seen), last_train_row)
-                if not _is_nan(metric_matrix[row][column])
+                if not is_nan(metric_matrix[row][column])
             ]
             final = metric_matrix[last_train_row][column]
-            if not history or _is_nan(final):
+            if not history or is_nan(final):
                 continue
 
             values.append(max(history) - final)
@@ -52,7 +53,3 @@ class ScheduleAwareForgettingMeasure(ScheduleAwareMetric):
 
     def name(self) -> str:
         return "ScheduleAwareForgettingMeasure"
-
-
-def _is_nan(value: float) -> bool:
-    return bool(np.isnan(value))

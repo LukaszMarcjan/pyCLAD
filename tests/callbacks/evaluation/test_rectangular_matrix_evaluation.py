@@ -8,8 +8,14 @@ share names and the matrix is rectangular.
 import numpy as np
 import pytest
 
-from pyclad.callbacks.evaluation.concept_metric_evaluation import ConceptMetricCallback
+from pyclad.callbacks.evaluation.concept_metric_evaluation import (
+    ConceptMetricCallback,
+    ScheduleAwareConceptMetricCallback,
+    build_dense_matrix,
+)
 from pyclad.data.concept import Concept
+from pyclad.data.datasets.concepts_dataset import ConceptsDataset
+from pyclad.data.grouping import apply_step_schedule
 from pyclad.metrics.base.base_metric import BaseMetric
 from pyclad.metrics.continual.concepts_metric import (
     ConceptLevelMatrix,
@@ -105,7 +111,7 @@ def test_rejecting_a_matrix_with_a_missing_cell():
 
 def test_passing_the_aligned_first_seen_steps_to_schedule_aware_metrics():
     metric = RecordingScheduleAwareMetric()
-    callback = ConceptMetricCallback(
+    callback = ScheduleAwareConceptMetricCallback(
         ScoreDrivenBaseMetric(),
         summarized_metrics=[],
         schedule_aware_metrics=[metric],
@@ -123,7 +129,7 @@ def test_passing_the_aligned_first_seen_steps_to_schedule_aware_metrics():
 
 def test_realigning_first_seen_steps_to_the_evaluation_order():
     metric = RecordingScheduleAwareMetric()
-    callback = ConceptMetricCallback(
+    callback = ScheduleAwareConceptMetricCallback(
         ScoreDrivenBaseMetric(),
         summarized_metrics=[],
         schedule_aware_metrics=[metric],
@@ -138,7 +144,7 @@ def test_realigning_first_seen_steps_to_the_evaluation_order():
 
 def test_rejecting_schedule_aware_metrics_without_a_first_seen_mapping():
     with pytest.raises(ValueError, match="first_seen_step"):
-        ConceptMetricCallback(
+        ScheduleAwareConceptMetricCallback(
             ScoreDrivenBaseMetric(),
             summarized_metrics=[],
             schedule_aware_metrics=[RecordingScheduleAwareMetric()],
@@ -146,7 +152,7 @@ def test_rejecting_schedule_aware_metrics_without_a_first_seen_mapping():
 
 
 def test_rejecting_a_first_seen_mapping_that_misses_an_evaluated_category():
-    callback = ConceptMetricCallback(
+    callback = ScheduleAwareConceptMetricCallback(
         ScoreDrivenBaseMetric(),
         summarized_metrics=[],
         schedule_aware_metrics=[RecordingScheduleAwareMetric()],
@@ -166,3 +172,68 @@ def test_square_scenario_keeps_reporting_identical_train_and_test_order():
 
     assert _info(callback)["concepts_order"] == ["a", "b"]
     assert _info(callback)["test_order"] == ["a", "b"]
+
+
+class TestAxisAlignment:
+    """A square matrix must stay name-consistent: cell [i][i] means "concept i after learning i".
+
+    Rows follow the training order and columns the evaluation order, and those are tracked
+    independently. When both axes hold the same concepts, pairing them by position rather than
+    by name silently transposes cells, and the square-only metrics then average the wrong ones
+    without raising.
+    """
+
+    def test_columns_follow_the_training_order_when_both_axes_hold_the_same_concepts(self):
+        metric_matrix = {"A": {"A": 0.9, "B": 0.1}, "B": {"A": 0.2, "B": 0.8}}
+
+        matrix = build_dense_matrix(metric_matrix, train_order=["A", "B"], test_order=["B", "A"])
+
+        assert matrix == [[0.9, 0.1], [0.2, 0.8]]
+
+    def test_columns_keep_the_evaluation_order_when_the_axes_differ(self):
+        metric_matrix = {"step_0": {"b": 0.1, "a": 0.2}, "step_1": {"b": 0.3, "a": 0.4}}
+
+        matrix = build_dense_matrix(metric_matrix, train_order=["step_0", "step_1"], test_order=["b", "a"])
+
+        assert matrix == [[0.1, 0.2], [0.3, 0.4]]
+
+    def test_callback_reports_the_column_order_it_actually_used(self):
+        callback = ConceptMetricCallback(ScoreDrivenBaseMetric(), summarized_metrics=[])
+        _run(callback, [[0.1, 0.2], [0.3, 0.4]], test_categories=["b", "a"], train_steps=["a", "b"])
+
+        info = _info(callback)
+
+        assert info["concepts_order"] == ["a", "b"]
+        assert info["test_order"] == ["a", "b"]
+
+
+class TestScheduleAwareWiring:
+    def test_reading_the_mapping_off_a_step_scheduled_dataset(self):
+        dataset = ConceptsDataset(
+            name="toy",
+            train_concepts=[Concept(name=c, data=np.zeros((2, 1))) for c in TEST_CATEGORIES],
+            test_concepts=[Concept(name=c, data=np.zeros((2, 1)), labels=np.zeros(2)) for c in TEST_CATEGORIES],
+        )
+        scheduled = apply_step_schedule(dataset, "2-1")
+        metric = RecordingScheduleAwareMetric()
+        callback = ScheduleAwareConceptMetricCallback(
+            ScoreDrivenBaseMetric(),
+            summarized_metrics=[],
+            schedule_aware_metrics=[metric],
+            first_seen_step=scheduled,
+        )
+
+        _run(callback, [[0.9, 0.8, 0.1], [0.6, 0.4, 0.7]])
+        _info(callback)
+
+        assert metric.received_first_seen == [0, 0, 1]
+
+    def test_rejecting_schedule_aware_callback_without_any_schedule_aware_metric(self):
+        with pytest.raises(ValueError, match="must not be empty"):
+            ScheduleAwareConceptMetricCallback(
+                ScoreDrivenBaseMetric(), summarized_metrics=[], first_seen_step=FIRST_SEEN
+            )
+
+    def test_plain_callback_no_longer_accepts_schedule_aware_arguments(self):
+        with pytest.raises(TypeError):
+            ConceptMetricCallback(ScoreDrivenBaseMetric(), summarized_metrics=[], first_seen_step=FIRST_SEEN)

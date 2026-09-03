@@ -293,3 +293,26 @@ class TestApplyStepSchedule:
     def test_rejecting_schedule_that_does_not_sum_to_train_concept_count(self):
         with pytest.raises(ValueError, match="sums to"):
             apply_step_schedule(self._dataset(), "4-2")
+
+
+class TestGroupTestGuards:
+    def _dataset(self, test_names):
+        return ConceptsDataset(
+            name="toy",
+            train_concepts=[_concept(f"c{i}", rows=2) for i in range(3)],
+            test_concepts=[_concept(name, rows=2, with_labels=True) for name in test_names],
+        )
+
+    def test_rejecting_group_test_when_test_concepts_are_a_different_set(self):
+        with pytest.raises(ValueError, match="1:1"):
+            apply_step_schedule(self._dataset(["c0", "c1", "other"]), "2-1", group_test=True)
+
+    def test_rejecting_group_test_when_test_concepts_are_in_a_different_order(self):
+        with pytest.raises(ValueError, match="1:1"):
+            apply_step_schedule(self._dataset(["c2", "c0", "c1"]), "2-1", group_test=True)
+
+    def test_first_seen_step_is_unavailable_when_test_concepts_were_grouped(self):
+        scheduled = apply_step_schedule(self._dataset(["c0", "c1", "c2"]), "2-1", group_test=True)
+
+        with pytest.raises(ValueError, match="group_test=True"):
+            scheduled.first_seen_step()

@@ -5,6 +5,7 @@ import numpy as np
 from pyclad.metrics.continual.concepts_metric import (
     ConceptLevelMatrix,
     ScheduleAwareMetric,
+    is_nan,
     validate_first_seen_steps,
 )
 
@@ -31,14 +32,10 @@ class ScheduleAwareNewTaskAcquisition(ScheduleAwareMetric):
         values = [
             float(metric_matrix[int(first_seen)][column])
             for column, first_seen in enumerate(first_seen_steps)
-            if not _is_nan(metric_matrix[int(first_seen)][column])
+            if not is_nan(metric_matrix[int(first_seen)][column])
         ]
 
         return float(np.mean(values)) if values else 0.0
 
     def name(self) -> str:
         return "ScheduleAwareNewTaskAcquisition"
-
-
-def _is_nan(value: float) -> bool:
-    return bool(np.isnan(value))

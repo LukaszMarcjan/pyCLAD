@@ -5,6 +5,7 @@ import numpy as np
 from pyclad.metrics.continual.concepts_metric import (
     ConceptLevelMatrix,
     ScheduleAwareMetric,
+    is_nan,
     validate_first_seen_steps,
 )
 
@@ -29,7 +30,7 @@ class ScheduleAwareForwardTransfer(ScheduleAwareMetric):
         per_column_means = []
         for column, first_seen in enumerate(first_seen_steps):
             pre_training_values = [
-                metric_matrix[row][column] for row in range(int(first_seen)) if not _is_nan(metric_matrix[row][column])
+                metric_matrix[row][column] for row in range(int(first_seen)) if not is_nan(metric_matrix[row][column])
             ]
             if pre_training_values:
                 per_column_means.append(float(np.mean(pre_training_values)))
@@ -38,7 +39,3 @@ class ScheduleAwareForwardTransfer(ScheduleAwareMetric):
 
     def name(self) -> str:
         return "ScheduleAwareForwardTransfer"
-
-
-def _is_nan(value: float) -> bool:
-    return bool(np.isnan(value))

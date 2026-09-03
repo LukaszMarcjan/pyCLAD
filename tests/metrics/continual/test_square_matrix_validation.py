@@ -39,3 +39,10 @@ def test_accepting_square_matrix(metric):
 @pytest.mark.parametrize("metric", METRICS, ids=lambda m: m.name())
 def test_accepting_empty_matrix(metric):
     metric.compute([])
+
+
+@pytest.mark.parametrize("metric", METRICS, ids=lambda m: m.name())
+def test_rejecting_a_row_without_columns(metric):
+    """`[[]]` is not square either: one row, no columns."""
+    with pytest.raises(ValueError, match="square"):
+        metric.compute([[]])

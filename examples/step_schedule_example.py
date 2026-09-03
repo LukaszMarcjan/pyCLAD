@@ -1,14 +1,22 @@
 import logging
 import pathlib
 
-from pyclad.callbacks.evaluation.concept_metric_evaluation import ConceptMetricCallback
+from pyclad.callbacks.evaluation.concept_metric_evaluation import (
+    ScheduleAwareConceptMetricCallback,
+)
 from pyclad.data.grouping import apply_step_schedule
 from pyclad.data.readers.concepts_readers import read_dataset_from_npy
 from pyclad.metrics.base.roc_auc import RocAuc
 from pyclad.metrics.continual.final_step_average import FinalStepAverage
-from pyclad.metrics.continual.schedule_aware_forgetting_measure import ScheduleAwareForgettingMeasure
-from pyclad.metrics.continual.schedule_aware_forward_transfer import ScheduleAwareForwardTransfer
-from pyclad.metrics.continual.schedule_aware_new_task_acquisition import ScheduleAwareNewTaskAcquisition
+from pyclad.metrics.continual.schedule_aware_forgetting_measure import (
+    ScheduleAwareForgettingMeasure,
+)
+from pyclad.metrics.continual.schedule_aware_forward_transfer import (
+    ScheduleAwareForwardTransfer,
+)
+from pyclad.metrics.continual.schedule_aware_new_task_acquisition import (
+    ScheduleAwareNewTaskAcquisition,
+)
 from pyclad.models.adapters.pyod_adapters import IsolationForestAdapter
 from pyclad.output.json_writer import JsonOutputWriter
 from pyclad.scenarios.concept_aware import ConceptAwareScenario
@@ -41,7 +49,7 @@ if __name__ == "__main__":
     # Metrics that walk the diagonal (ContinualAverage, BackwardTransfer, ForwardTransfer,
     # ForgettingMeasure) reject a rectangular matrix -- pass the schedule-aware ones instead.
     callbacks = [
-        ConceptMetricCallback(
+        ScheduleAwareConceptMetricCallback(
             base_metric=RocAuc(),
             summarized_metrics=[FinalStepAverage()],
             schedule_aware_metrics=[

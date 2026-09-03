@@ -4,6 +4,8 @@ import numpy as np
 import pytest
 
 from pyclad.data.concept import Concept
+from pyclad.data.datasets.concepts_dataset import ConceptsDataset
+from pyclad.data.grouping import apply_step_schedule
 from pyclad.metrics.base.base_metric import BaseMetric
 from pyclad.metrics.continual.concepts_metric import (
     ConceptLevelMatrix,
@@ -11,6 +13,7 @@ from pyclad.metrics.continual.concepts_metric import (
 )
 from pyclad.metrics.continual.final_step_average import FinalStepAverage
 from pyclad.vision.callbacks.vision_pixel_concept_metric_callback import (
+    ScheduleAwareVisionPixelConceptMetricCallback,
     VisionPixelConceptMetricCallback,
 )
 from pyclad.vision.data.vision_concept import VisionConcept
@@ -92,7 +95,7 @@ def test_reporting_train_and_test_order_separately():
 
 def test_passing_the_aligned_first_seen_steps_to_schedule_aware_metrics():
     metric = RecordingScheduleAwareMetric()
-    callback = VisionPixelConceptMetricCallback(
+    callback = ScheduleAwareVisionPixelConceptMetricCallback(
         base_metric=ScoreDrivenPixelMetric(),
         schedule_aware_metrics=[metric],
         first_seen_step=FIRST_SEEN,
@@ -107,7 +110,7 @@ def test_passing_the_aligned_first_seen_steps_to_schedule_aware_metrics():
 
 def test_rejecting_schedule_aware_metrics_without_a_first_seen_mapping():
     with pytest.raises(ValueError, match="first_seen_step"):
-        VisionPixelConceptMetricCallback(
+        ScheduleAwareVisionPixelConceptMetricCallback(
             base_metric=ScoreDrivenPixelMetric(),
             schedule_aware_metrics=[RecordingScheduleAwareMetric()],
         )
@@ -128,3 +131,25 @@ def test_reporting_nothing_when_no_pixel_evaluation_happened():
     callback.after_training(Concept(name="step_0", data=np.array([])))
 
     assert callback.info() == {}
+
+
+def test_accepting_a_step_scheduled_dataset_instead_of_a_mapping():
+    """Same wiring as the image-level callback, since both go through ScheduleAwareSupport."""
+    dataset = ConceptsDataset(
+        name="toy",
+        train_concepts=[Concept(name=c, data=np.zeros((2, 1))) for c in TEST_CATEGORIES],
+        test_concepts=[Concept(name=c, data=np.zeros((2, 1)), labels=np.zeros(2)) for c in TEST_CATEGORIES],
+    )
+    scheduled = apply_step_schedule(dataset, "2-1")
+    metric = RecordingScheduleAwareMetric()
+    callback = ScheduleAwareVisionPixelConceptMetricCallback(
+        base_metric=ScoreDrivenPixelMetric(),
+        schedule_aware_metrics=[metric],
+        first_seen_step=scheduled,
+    )
+
+    _run(callback, [[0.9, 0.8, 0.1], [0.6, 0.4, 0.7]])
+    info = _info(callback)
+
+    assert metric.received_first_seen == [0, 0, 1]
+    assert info["first_seen_step"] == {"bottle": 0, "cable": 0, "capsule": 1}

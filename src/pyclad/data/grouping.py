@@ -68,7 +68,20 @@ class StepScheduledConceptsDataset(ConceptsDataset):
         return list(self._category_order)
 
     def first_seen_step(self) -> Dict[str, int]:
-        """Map category name -> index of the training step that first includes it."""
+        """Map category name -> index of the training step that first includes it.
+
+        :raises ValueError: when ``group_test=True``. The mapping is keyed by the original
+            category names, but grouped test concepts are named after their step, so the two
+            share no names. Schedule-aware metrics describe the rectangular matrix that only
+            ``group_test=False`` produces; with ``group_test=True`` both axes collapse to the
+            same T steps and the asymmetry they measure no longer exists.
+        """
+        if self._group_test:
+            raise ValueError(
+                f"Dataset {self.name()!r} was grouped with group_test=True, so its test concepts are "
+                "grouped steps rather than categories and first_seen_step does not apply. "
+                "Schedule-aware metrics need group_test=False."
+            )
         return dict(self._first_seen_step)
 
     def group_test(self) -> bool:
@@ -157,12 +170,13 @@ def group_concepts_by_schedule(
     if sum(parsed) != len(concepts):
         raise ValueError(f"Schedule sum ({sum(parsed)}) does not match number of concepts ({len(concepts)}).")
 
-    grouped: List[Concept] = []
-    cursor = 0
-    for step_index, step_size in enumerate(parsed):
-        chunk = list(concepts[cursor : cursor + step_size])
-        cursor += step_size
+    positions = _first_seen_index_per_position(parsed)
+    chunks: List[List[Concept]] = [[] for _ in parsed]
+    for position, concept in enumerate(concepts):
+        chunks[positions[position]].append(concept)
 
+    grouped: List[Concept] = []
+    for step_index, chunk in enumerate(chunks):
         if name_mode == "joined":
             group_name = name_separator.join(concept.name for concept in chunk)
         else:
@@ -209,10 +223,11 @@ def apply_step_schedule(
 
     test_concepts = dataset.test_concepts()
     if group_test:
-        if len(test_concepts) != len(train_concepts):
+        test_names = [concept.name for concept in test_concepts]
+        if test_names != category_order:
             raise ValueError(
-                "group_test=True requires test concepts to align 1:1 with train concepts "
-                f"(got {len(test_concepts)} test vs {len(train_concepts)} train)."
+                "group_test=True requires test concepts to align 1:1 with train concepts, in the "
+                f"same order. Train concepts: {category_order}. Test concepts: {test_names}."
             )
         resolved_test = group_concepts_by_schedule(
             concepts=test_concepts,
@@ -245,11 +260,7 @@ def compute_first_seen_step(ordered_concept_names: Sequence[str], schedule: Step
     :raises ValueError: when the schedule does not sum to ``len(ordered_concept_names)``.
     """
     parsed = parse_step_schedule(schedule, total_categories=len(ordered_concept_names))
-
-    first_seen: List[int] = []
-    for step_index, step_size in enumerate(parsed):
-        first_seen.extend([step_index] * step_size)
-    return first_seen
+    return _first_seen_index_per_position(parsed)
 
 
 def first_seen_step_for_test_order(
@@ -258,6 +269,9 @@ def first_seen_step_for_test_order(
     test_order: Sequence[str],
 ) -> List[int]:
     """Re-align first-seen step indices to an arbitrary evaluation (column) order.
+
+    The callbacks in this library align the mapping themselves, so this helper exists for
+    callers that build a concept-level matrix outside pyCLAD and need the same alignment.
 
     :param ordered_concept_names: training order before grouping.
     :param test_order: column order used by the evaluation callback.
@@ -273,6 +287,18 @@ def first_seen_step_for_test_order(
             )
         aligned.append(name_to_step[name])
     return aligned
+
+
+def _first_seen_index_per_position(schedule: StepSchedule) -> List[int]:
+    """Map each position in a merged sequence to the step it lands in.
+
+    Shared by :func:`compute_first_seen_step` and :func:`group_concepts_by_schedule` so the two
+    cannot disagree about where a schedule's chunk boundaries fall.
+    """
+    positions: List[int] = []
+    for step_index, step_size in enumerate(schedule):
+        positions.extend([step_index] * step_size)
+    return positions
 
 
 def _parse_schedule_string(spec: str) -> StepSchedule:
@@ -295,7 +321,13 @@ def _parse_schedule_string(spec: str) -> StepSchedule:
 
 
 def _merge_concepts(chunk: Sequence[Concept], group_name: str) -> Concept:
-    """Merge concepts of one step, preserving their concrete class and array fields."""
+    """Merge concepts of one step, preserving their concrete class and array fields.
+
+    Contract: every field of a :class:`Concept` other than ``name`` is either ``None`` or an
+    array whose first axis is the batch, so merging concatenates it along that axis. This holds
+    for ``Concept`` and :class:`~pyclad.vision.data.vision_concept.VisionConcept`; a subclass
+    adding a scalar or per-concept field would need its own merge rule here.
+    """
     first = chunk[0]
     if len(chunk) == 1:
         return replace(first, name=group_name)

@@ -3,6 +3,7 @@ import numpy as np
 from pyclad.metrics.continual.concepts_metric import (
     ConceptLevelMatrix,
     SummarizedMetric,
+    is_nan,
 )
 
 
@@ -20,12 +21,8 @@ class FinalStepAverage(SummarizedMetric):
         if len(metric_matrix) == 0:
             return 0.0
 
-        final_row = [value for value in metric_matrix[-1] if not _is_nan(value)]
+        final_row = [value for value in metric_matrix[-1] if not is_nan(value)]
         return float(np.mean(final_row)) if final_row else 0.0
 
     def name(self) -> str:
         return "FinalStepAverage"
-
-
-def _is_nan(value: float) -> bool:
-    return bool(np.isnan(value))

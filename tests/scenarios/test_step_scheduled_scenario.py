@@ -8,7 +8,10 @@ and category names on the other, and the schedule-aware metrics land in the outp
 import numpy as np
 import pytest
 
-from pyclad.callbacks.evaluation.concept_metric_evaluation import ConceptMetricCallback
+from pyclad.callbacks.evaluation.concept_metric_evaluation import (
+    ConceptMetricCallback,
+    ScheduleAwareConceptMetricCallback,
+)
 from pyclad.data.concept import Concept
 from pyclad.data.datasets.concepts_dataset import ConceptsDataset
 from pyclad.data.grouping import apply_step_schedule
@@ -59,9 +62,7 @@ class ConstantBaseMetric(BaseMetric):
 def dataset():
     return ConceptsDataset(
         name="toy",
-        train_concepts=[
-            Concept(name=category, data=np.zeros((4, 3), dtype=np.float64)) for category in CATEGORIES
-        ],
+        train_concepts=[Concept(name=category, data=np.zeros((4, 3), dtype=np.float64)) for category in CATEGORIES],
         test_concepts=[
             Concept(
                 name=category,
@@ -74,14 +75,12 @@ def dataset():
 
 
 def _run_scenario(dataset, callbacks):
-    ConceptAwareScenario(
-        dataset=dataset, strategy=NaiveStrategy(ConstantScoreModel()), callbacks=callbacks
-    ).run()
+    ConceptAwareScenario(dataset=dataset, strategy=NaiveStrategy(ConstantScoreModel()), callbacks=callbacks).run()
 
 
 def test_step_scheduled_run_reports_a_rectangular_matrix(dataset):
     scheduled = apply_step_schedule(dataset, "3-1-1")
-    callback = ConceptMetricCallback(
+    callback = ScheduleAwareConceptMetricCallback(
         base_metric=ConstantBaseMetric(),
         summarized_metrics=[FinalStepAverage()],
         schedule_aware_metrics=[

@@ -63,9 +63,11 @@ only at the final step cannot have been forgotten yet:
 $f_k = \max_{j \in [s_k,\, T-2]} R_{j, k} - R_{T-1, k}$
 
 - **Schedule-Aware Forward Transfer**: the model's performance on concepts it has not been trained
-on yet, averaged over the pre-training rows. Concepts with $s_k = 0$ are skipped:
+on yet, averaged over the pre-training rows. Concepts with $s_k = 0$ are skipped, and so are
+individual cells where the base metric was undefined, so the mean is taken over the non-NaN
+pre-training rows rather than over all $s_k$ of them:
 
-$\text{fwt}_k = \frac{1}{s_k}\sum_{j=0}^{s_k - 1} R_{j, k}$
+$\text{fwt}_k = \underset{j \,\in\, [0,\, s_k - 1]}{\text{mean}} R_{j, k}$
 
 - **Schedule-Aware New Task Acquisition**: performance on a concept right after it first entered
 training, before any later step could interfere. Together with the forgetting measure it separates

@@ -1,6 +1,8 @@
 import abc
 from typing import List, Sequence, Tuple
 
+import numpy as np
+
 ConceptLevelMatrix = List[List[float]]  # ConceptLevelMatrix[learned_concept][evaluated_concept]
 
 
@@ -59,8 +61,9 @@ def validate_square_matrix(metric_matrix: ConceptLevelMatrix, metric_name: str) 
     produced by a step schedule they would silently return a number computed over cells
     that do not mean what the formula assumes.
 
-    :raises ValueError: when the matrix has rows of unequal length, or has both rows and
-        columns but is not square.
+    :raises ValueError: when the matrix has rows of unequal length, or is non-empty and not
+        square. An empty matrix (``[]``) is accepted; ``[[]]`` is not, since one row with no
+        columns is not square.
     """
     row_lengths = {len(row) for row in metric_matrix}
     if len(row_lengths) > 1:
@@ -70,7 +73,7 @@ def validate_square_matrix(metric_matrix: ConceptLevelMatrix, metric_name: str) 
         )
 
     rows, columns = matrix_shape(metric_matrix)
-    if rows > 0 and columns > 0 and rows != columns:
+    if rows > 0 and rows != columns:
         raise ValueError(
             f"{metric_name} requires a square concept-level matrix, got {rows}x{columns}. "
             "A rectangular matrix comes from step-scheduled training, where rows are training "
@@ -97,3 +100,8 @@ def validate_first_seen_steps(
                 f"{metric_name}: first_seen_steps[{column}] = {first_seen} is out of range "
                 f"for a matrix with {rows} training steps."
             )
+
+
+def is_nan(value: float) -> bool:
+    """True when ``value`` is NaN. Metric matrices carry NaN where a base metric was undefined."""
+    return bool(np.isnan(value))
